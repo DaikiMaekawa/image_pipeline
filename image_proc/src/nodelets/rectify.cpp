@@ -63,6 +63,11 @@ class RectifyNodelet : public nodelet::Nodelet
   boost::shared_ptr<ReconfigureServer> reconfigure_server_;
   Config config_;
 
+  //new camera matrix
+  cv::Mat mapx_;
+  cv::Mat mapy_;
+  bool camera_set_;
+
   // Processing state (note: only safe because we're using single-threaded NodeHandle!)
   image_geometry::PinholeCameraModel model_;
 
@@ -134,16 +139,23 @@ void RectifyNodelet::imageCb(const sensor_msgs::ImageConstPtr& image_msg,
   // This will be true if D is empty/zero sized
   if (zero_distortion)
   {
+    NODELET_WARN_THROTTLE(10, "Zero distortion found.");
     pub_rect_.publish(image_msg);
     return;
   }
 
   // Update the camera model
   model_.fromCameraInfo(info_msg);
-  
+  cv::Mat m1, m2;
+  cv::fisheye::initUndistortRectifyMap(model_.intrinsicMatrix(), model_.distortionCoeffs(), cv::Mat(),
+        model_.intrinsicMatrix(), model_.fullResolution(), CV_32FC1, m1, m2);
+  mapx_ = m1;
+  mapy_ = m2;
+
   // Create cv::Mat views onto both buffers
   const cv::Mat image = cv_bridge::toCvShare(image_msg)->image;
   cv::Mat rect;
+  cv::Mat scaled_K;
 
   // Rectify and publish
   int interpolation;
@@ -151,10 +163,12 @@ void RectifyNodelet::imageCb(const sensor_msgs::ImageConstPtr& image_msg,
     boost::lock_guard<boost::recursive_mutex> lock(config_mutex_);
     interpolation = config_.interpolation;
   }
-  model_.rectifyImage(image, rect, interpolation);
+  
+  cv::remap(image, rect, mapx_, mapy_, cv::INTER_LANCZOS4, cv::BORDER_CONSTANT);
 
   // Allocate new rectified image message
   sensor_msgs::ImagePtr rect_msg = cv_bridge::CvImage(image_msg->header, image_msg->encoding, rect).toImageMsg();
+  cv::Point3d ray = model_.projectPixelTo3dRay(cv::Point2d(0, 0));
   pub_rect_.publish(rect_msg);
 }
 
