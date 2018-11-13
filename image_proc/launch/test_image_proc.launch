@@ -1,0 +1,6 @@
+<launch>
+  <node name="image_proc" pkg="image_proc" type="image_proc" launch-prefix="xterm -e gdb --args">
+    <remap from="image_raw" to="image_raw_synched"/>
+    <remap from="camera_info" to="camera_info_synched"/>
+  </node>
+</launch>

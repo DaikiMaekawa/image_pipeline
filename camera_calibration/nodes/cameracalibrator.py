@@ -33,6 +33,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 import cv2
+assert cv2.__version__[0] == '3', 'The fisheye module requires opencv version >= 3.0.0'
 import functools
 import message_filters
 import os
@@ -49,6 +50,9 @@ def main():
     parser.add_option("-c", "--camera_name",
                      type="string", default='narrow_stereo',
                      help="name of the camera to appear in the calibration file")
+    parser.add_option("-m", "--distortion_model",
+                     type="string", default="plumb_bob",
+                     help="name of the distortion model to use - 'plumb_bob' (radtan), 'rational' (rational polynomial), or 'equidistant' (fisheye).")
     group = OptionGroup(parser, "Chessboard Options",
                         "You must specify one or more chessboards as pairs of --size and --square options.")
     group.add_option("-p", "--pattern",
@@ -80,8 +84,8 @@ def main():
                      action="store_true", default=False,
                      help="set tangential distortion coefficients (p1, p2) to zero")
     group.add_option("-k", "--k-coefficients",
-                     type="int", default=2, metavar="NUM_COEFFS",
-                     help="number of radial distortion coefficients to use (up to 6, default %default)")
+                     type="int", default=None, metavar="NUM_COEFFS",
+                     help="number of radial distortion coefficients to use (up to 6, default 2)")
     group.add_option("--disable_calib_cb_fast_check", action='store_true', default=False,
                      help="uses the CALIB_CB_FAST_CHECK flag for findChessboardCorners")
     parser.add_option_group(group)
@@ -104,7 +108,13 @@ def main():
     else:
         sync = functools.partial(ApproximateTimeSynchronizer, slop=options.approximate)
 
-    num_ks = options.k_coefficients
+    if options.k_coefficients is None:
+        if options.distortion_model == 'equidistant':
+            num_ks = 4
+        elif options.distortion_model == 'rational':
+            num_ks = 6
+        else:
+            num_ks = 2
 
     calib_flags = 0
     if options.fix_principal_point:
@@ -128,6 +138,19 @@ def main():
     if (num_ks < 1):
         calib_flags |= cv2.CALIB_FIX_K1
 
+    if options.distortion_model == 'equidistant':
+        calib_flags = cv2.fisheye.CALIB_FIX_SKEW | cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC
+        if (num_ks < 4):
+            calib_flags |= cv2.fisheye.CALIB_FIX_K4
+        if (num_ks < 3):
+            calib_flags |= cv2.fisheye.CALIB_FIX_K3
+        if (num_ks < 2):
+            calib_flags |= cv2.fisheye.CALIB_FIX_K2
+        if (num_ks < 1):
+            calib_flags |= cv2.fisheye.CALIB_FIX_K1
+        if options.fix_principal_point:
+            calib_flags |= cv2.CALIB_FIX_PRINCIPAL_POINT
+
     pattern = Patterns.Chessboard
     if options.pattern == 'circles':
         pattern = Patterns.Circles
@@ -136,14 +159,13 @@ def main():
     elif options.pattern != 'chessboard':
         print('Unrecognized pattern %s, defaulting to chessboard' % options.pattern)
 
-    if options.disable_calib_cb_fast_check:
+    if options.disable_calib_cb_fast_check or options.distortion_model == 'equidistant':
         checkerboard_flags = 0
     else:
         checkerboard_flags = cv2.CALIB_CB_FAST_CHECK
 
     rospy.init_node('cameracalibrator')
-    node = OpenCVCalibrationNode(boards, options.service_check, sync, calib_flags, pattern, options.camera_name,
-                                 checkerboard_flags=checkerboard_flags)
+    node = OpenCVCalibrationNode(boards, options.service_check, sync, calib_flags, pattern, options.camera_name, options.distortion_model, checkerboard_flags=checkerboard_flags)
     rospy.spin()
 
 if __name__ == "__main__":
