@@ -66,7 +66,7 @@ class RectifyNodelet : public nodelet::Nodelet
   //new camera matrix
   cv::Mat mapx_;
   cv::Mat mapy_;
-  bool camera_set_;
+  bool had_initialized_;
 
   // Processing state (note: only safe because we're using single-threaded NodeHandle!)
   image_geometry::PinholeCameraModel model_;
@@ -145,17 +145,20 @@ void RectifyNodelet::imageCb(const sensor_msgs::ImageConstPtr& image_msg,
   }
 
   // Update the camera model
-  model_.fromCameraInfo(info_msg);
-  cv::Mat m1, m2;
-  cv::fisheye::initUndistortRectifyMap(model_.intrinsicMatrix(), model_.distortionCoeffs(), cv::Mat(),
-        model_.intrinsicMatrix(), model_.fullResolution(), CV_32FC1, m1, m2);
-  mapx_ = m1;
-  mapy_ = m2;
+  
+  if (!had_initialized_) {
+    model_.fromCameraInfo(info_msg);
+    cv::Mat m1, m2;
+    cv::fisheye::initUndistortRectifyMap(model_.intrinsicMatrix(), model_.distortionCoeffs(), cv::Mat(),
+          model_.intrinsicMatrix(), model_.fullResolution(), CV_32FC1, m1, m2);
+    mapx_ = m1;
+    mapy_ = m2;
+    had_initialized_ = true;
+  }
 
   // Create cv::Mat views onto both buffers
   const cv::Mat image = cv_bridge::toCvShare(image_msg)->image;
   cv::Mat rect;
-  cv::Mat scaled_K;
 
   // Rectify and publish
   int interpolation;
