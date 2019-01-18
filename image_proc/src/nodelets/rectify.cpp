@@ -68,9 +68,6 @@ class RectifyNodelet : public nodelet::Nodelet
   cv::Mat mapy_;
   bool had_initialized_;
 
-  // Processing state (note: only safe because we're using single-threaded NodeHandle!)
-  image_geometry::PinholeCameraModel model_;
-
   virtual void onInit();
 
   void connectCb();
@@ -147,10 +144,12 @@ void RectifyNodelet::imageCb(const sensor_msgs::ImageConstPtr& image_msg,
   // Update the camera model
   
   if (!had_initialized_) {
-    model_.fromCameraInfo(info_msg);
     cv::Mat m1, m2;
-    cv::fisheye::initUndistortRectifyMap(model_.intrinsicMatrix(), model_.distortionCoeffs(), cv::Mat(),
-          model_.intrinsicMatrix(), model_.fullResolution(), CV_32FC1, m1, m2);
+    sensor_msgs::CameraInfo info = *info_msg;
+    cv::Mat_<double> D(1, info.D.size(), &info.D[0]);
+    cv::Matx33d K(&info.K[0]);
+    cv::fisheye::initUndistortRectifyMap(K, D, cv::Mat(), K,
+        cv::Size(info.width, info.height), CV_32FC1, m1, m2);
     mapx_ = m1;
     mapy_ = m2;
     had_initialized_ = true;
@@ -171,7 +170,6 @@ void RectifyNodelet::imageCb(const sensor_msgs::ImageConstPtr& image_msg,
 
   // Allocate new rectified image message
   sensor_msgs::ImagePtr rect_msg = cv_bridge::CvImage(image_msg->header, image_msg->encoding, rect).toImageMsg();
-  cv::Point3d ray = model_.projectPixelTo3dRay(cv::Point2d(0, 0));
   pub_rect_.publish(rect_msg);
 }
 
